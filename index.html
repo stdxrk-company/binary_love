@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Windows PowerShell</title>
+<title>Terminal</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌹</text></svg>">
 <style>
   :root {
@@ -36,9 +36,9 @@
   }
   #term.gone { opacity: 0; transform: scale(.96); pointer-events: none; }
   .window {
-    width: min(900px, 100%); height: min(560px, 100%);
-    background: #012456; border: 1px solid #3b4a63; border-radius: 8px;
-    box-shadow: 0 24px 80px rgba(0,0,0,.6);
+    width: min(760px, 100%); height: min(500px, 100%);
+    background: rgba(30,30,30,.97); border: 1px solid rgba(255,255,255,.14); border-radius: 11px;
+    box-shadow: 0 0 0 .5px #000, 0 30px 90px rgba(0,0,0,.65);
     display: flex; flex-direction: column; overflow: hidden; position: relative;
   }
   .window.shake { animation: shake .38s linear; }
@@ -48,36 +48,32 @@
     60% { transform: translateX(-6px); } 80% { transform: translateX(4px); }
   }
   .bar {
-    height: 32px; flex: none; display: flex; align-items: center; gap: 10px; padding-left: 12px;
-    background: #f3f3f3; color: #1b1b1b; font: 12px "Segoe UI", system-ui, sans-serif;
+    height: 28px; flex: none; display: flex; align-items: center; padding: 0 10px; position: relative;
+    background: #2c2c2c; border-bottom: 1px solid #000; color: #a9a9a9;
+    font: 600 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
     user-select: none;
   }
-  .bar .ico {
-    width: 16px; height: 16px; border-radius: 3px; background: #2a5fb5; color: #fff; flex: none;
-    font: bold 9px Consolas, monospace; display: grid; place-items: center; letter-spacing: -1px;
-  }
-  .bar .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bar .ctl { display: flex; height: 100%; }
-  .bar .ctl span { width: 46px; display: grid; place-items: center; font-size: 13px; color: #333; }
-  .bar .ctl span:last-child:hover { background: #c42b1c; color: #fff; }
+  .lights { display: flex; gap: 8px; z-index: 1; }
+  .lights span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.25); }
+  .bar .title { position: absolute; left: 0; right: 0; text-align: center; padding: 0 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #out {
-    flex: 1; padding: 6px 10px 24px; overflow-y: auto; font-size: 15px; line-height: 1.35;
-    font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
-    color: #eeedf0; white-space: pre-wrap; word-break: break-word; cursor: text;
-    scrollbar-width: thin; scrollbar-color: #4a5d80 transparent;
+    flex: 1; padding: 4px 6px 24px; overflow-y: auto; font-size: 14px; line-height: 1.3;
+    font-family: "SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace;
+    color: #f2f2f2; white-space: pre-wrap; word-break: break-word; cursor: text;
+    scrollbar-width: thin; scrollbar-color: #555 transparent;
   }
-  .line { min-height: 1.35em; }
-  .dim { color: #9aa7bd; }
-  .err { color: #ff6b6b; background: #000; }
-  .warn { color: #ffff55; }
-  .pink { color: #ff9ccf; }
-  .ok { color: #7dff8a; }
-  .cmd { color: #ffff55; }
-  .str { color: #5ff3ff; }
-  .prog { background: #007a7a; color: #ffff55; }
+  .line { min-height: 1.3em; }
+  .dim { color: #8e8e93; }
+  .err { color: #f2f2f2; }
+  .warn { color: #ffd60a; }
+  .pink { color: #ff8fc7; }
+  .ok { color: #32d74b; }
+  .cmd { color: #f2f2f2; }
+  .str { color: #64d2ff; }
+  .prog { color: #32d74b; }
   .cursor {
-    display: inline-block; width: .6em; height: .18em; vertical-align: -0.12em; margin-left: 1px;
-    background: #eeedf0; animation: blink 1s steps(1) infinite;
+    display: inline-block; width: .6em; height: 1.15em; vertical-align: -0.2em; margin-left: 0;
+    background: #a6a6a6; animation: blink 1.1s steps(1) infinite;
   }
   @keyframes blink { 50% { opacity: 0; } }
   #code {
@@ -116,9 +112,10 @@
 <div id="term">
   <div class="window" id="win">
     <div class="bar">
-      <span class="ico">&gt;_</span>
-      <span class="title">Windows PowerShell</span>
-      <span class="ctl"><span>&#x2014;</span><span>&#x2610;</span><span>&#x2715;</span></span>
+      <span class="lights">
+        <span style="background:#ff5f57"></span><span style="background:#febc2e"></span><span style="background:#28c840"></span>
+      </span>
+      <span class="title" id="wtitle">love — -zsh — 80×24</span>
     </div>
     <div id="out"></div>
     <input id="code" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Команда">
@@ -134,9 +131,21 @@
 <script>
 /* ================== НАСТРОЙКИ ================== */
 const CONFIG = {
-  command: "I love you",                        // какую команду она должна ввести
+  command: "I love you",                        // секретная команда (на экране НЕ показывается)
+  accept: ["я тебя люблю", "i love u"],         // ещё варианты, которые тоже засчитаются
   message: "Это всё для тебя, моя любимая ❤",   // сообщение под букетом
-  user: "love",                                 // имя в строке PS C:\Users\<user>>
+  user: "love",                                 // имя пользователя в строке love@MacBook-Air ~ %
+  host: "MacBook-Air",                          // имя компьютера
+  riddle: [                                     // загадка перед вводом
+    "Три слова, которые я говорю тебе чаще всего.",
+    "Пароль — на английском.",
+  ],
+  hints: [                                      // подсказки после каждой ошибки, по очереди
+    "Подсказка: 3 слова, 8 букв.",
+    "Подсказка: первое слово — всего одна буква.",
+    "Подсказка: ответ в двоичном коде — {bin}",
+    "Подсказка: I ❤ ___",
+  ],
 };
 /* =============================================== */
 
@@ -153,8 +162,11 @@ const bin = n => Array.from({ length: n }, () => Math.random() < .5 ? '0' : '1')
 /* ================== TERMINAL ================== */
 const out = $('#out'), input = $('#code'), win = $('#win');
 let accepting = false, tries = 0, promptLine = null;
-const PS = `PS C:\\Users\\${CONFIG.user}> `;
+const PS = `${CONFIG.user}@${CONFIG.host} ~ % `;
+$('#wtitle').textContent = `${CONFIG.user} — -zsh — 80×24`;
 const norm = s => s.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '');
+const ANSWERS = [CONFIG.command, ...CONFIG.accept].map(norm);
+const toBin = s => Array.from(new TextEncoder().encode(s), b => b.toString(2).padStart(8, '0')).join(' ');
 
 function addLine(cls = '') {
   const d = document.createElement('div');
@@ -180,9 +192,11 @@ async function type(text, cls = '', speed = 18) {
 function addHTML(html, cls = '') { const d = addLine(cls); d.innerHTML = html; return d; }
 
 async function boot() {
-  addLine().textContent = 'Windows PowerShell';
-  addLine().textContent = '(C) Корпорация Майкрософт (Microsoft Corporation). Все права защищены.';
-  addLine();
+  const ll = new Date(Date.now() - rand(3, 40) * 3600e3);
+  const p2 = n => String(n).padStart(2, '0');
+  addLine().textContent = `Last login: ${ll.toLocaleDateString('en-US', { weekday: 'short' })} ` +
+    `${ll.toLocaleDateString('en-US', { month: 'short' })} ${String(ll.getDate()).padStart(2, ' ')} ` +
+    `${p2(ll.getHours())}:${p2(ll.getMinutes())}:${p2(ll.getSeconds())} on ttys000`;
   await sleep(700);
   // "user" runs the gift script
   const d = addLine();
@@ -191,18 +205,17 @@ async function boot() {
   await sleep(900);
   c.remove();
   const s = document.createElement('span'); s.className = 'cmd'; d.appendChild(s);
-  await typeInto(s, '.\\gift.ps1', 70);
+  await typeInto(s, './gift.sh', 70);
   await sleep(500);
   addLine();
   await type('Найдена зашифрованная посылка для тебя 🎁', 'pink', 16);
   await sleep(150);
-  await type('Содержимое: 01100110 01101100 01101111 01110111 01100101 01110010 01110011', 'dim', 4);
+  await type('Содержимое: ' + bin(64).replace(/(.{8})/g, '$1 ').trim() + ' ...', 'dim', 3);
   await sleep(300);
   addLine();
-  const ask = addLine('warn');
-  await typeInto(ask, 'Чтобы открыть её, введи команду:  ', 16);
-  const cmd = document.createElement('span'); cmd.className = 'str'; ask.appendChild(cmd);
-  await typeInto(cmd, CONFIG.command, 40);
+  await type('Посылка защищена секретной командой. Отгадай её:', 'warn', 16);
+  await sleep(200);
+  for (const r of CONFIG.riddle) await type('  ' + r, 'str', 22);
   addLine();
   showPrompt();
 }
@@ -236,14 +249,15 @@ async function submit() {
 
   if (!v) { showPrompt(); return; }
 
-  if (norm(v) === norm(CONFIG.command)) {
+  if (ANSWERS.includes(norm(v))) {
     await granted();
   } else {
     tries++;
     win.classList.remove('shake'); void win.offsetWidth; win.classList.add('shake');
-    await type(`${v} : Имя "${v}" не распознано как имя командлета, функции или программы.`, 'err', 3);
-    await type(`Правильная команда:  ${CONFIG.command}`, 'err', 3);
-    if (tries >= 2) await type('    (ну давай, ты же знаешь эти слова 🙂)', 'dim', 12);
+    await type(`zsh: command not found: ${v.split(/\s+/)[0]}`, 'err', 3);
+    await type('gift.sh: доступ к посылке запрещён', 'err', 3);
+    const hint = CONFIG.hints[Math.min(tries, CONFIG.hints.length) - 1];
+    if (hint) await type(hint.replace('{bin}', toBin(CONFIG.command)), 'str', 14);
     addLine();
     showPrompt();
   }
@@ -256,12 +270,11 @@ async function granted() {
   addLine('dim').textContent = 'Распаковка посылки';
   const bar = addLine('prog');
   const N = innerWidth < 560 ? 18 : 40;
-  bar.style.display = 'inline-block';
   for (let i = 0; i <= N; i++) {
-    bar.textContent = ` [${'o'.repeat(i)}${' '.repeat(N - i)}] ${Math.round(i / N * 100)}% `;
+    bar.textContent = `[${'#'.repeat(i)}${'.'.repeat(N - i)}] ${Math.round(i / N * 100)}%`;
     await sleep(30 + Math.random() * 45);
   }
-  await type('Сборка букета из бинарного кода...', 'ok', 12);
+  await type('Открываю посылку...', 'ok', 12);
   const w = innerWidth < 560 ? 32 : 56;
   for (let i = 0; i < 7; i++) {
     const d = addLine('dim');
@@ -269,7 +282,7 @@ async function granted() {
     out.scrollTop = out.scrollHeight;
     await sleep(70);
   }
-  await type('Готово ✿', 'pink', 20);
+  await type('Готово ❤', 'pink', 20);
   await sleep(600);
   $('#term').classList.add('gone');
   startScene();
