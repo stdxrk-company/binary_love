@@ -1,0 +1,12 @@
+{
+  "name": "binary-love",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PowerShell-style terminal that blooms into a bouquet of binary flowers",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

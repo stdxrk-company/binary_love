@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Windows PowerShell</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌹</text></svg>">
+<style>
+  :root {
+    --bg: #030604;
+    --panel: #070d0a;
+    --line: #17301f;
+    --fg: #39ff88;
+    --dim: #2f9c5e;
+    --err: #ff5470;
+    --warn: #ffd166;
+    --pink: #ff8fc0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  body {
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* CRT scanlines */
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,.022) 0 1px, transparent 1px 3px);
+  }
+
+  /* ---------- terminal ---------- */
+  #term {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 16px; transition: opacity 1.1s ease, transform 1.1s ease; z-index: 5;
+  }
+  #term.gone { opacity: 0; transform: scale(.96); pointer-events: none; }
+  .window {
+    width: min(900px, 100%); height: min(560px, 100%);
+    background: #012456; border: 1px solid #3b4a63; border-radius: 8px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.6);
+    display: flex; flex-direction: column; overflow: hidden; position: relative;
+  }
+  .window.shake { animation: shake .38s linear; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-9px); } 40% { transform: translateX(8px); }
+    60% { transform: translateX(-6px); } 80% { transform: translateX(4px); }
+  }
+  .bar {
+    height: 32px; flex: none; display: flex; align-items: center; gap: 10px; padding-left: 12px;
+    background: #f3f3f3; color: #1b1b1b; font: 12px "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+  }
+  .bar .ico {
+    width: 16px; height: 16px; border-radius: 3px; background: #2a5fb5; color: #fff; flex: none;
+    font: bold 9px Consolas, monospace; display: grid; place-items: center; letter-spacing: -1px;
+  }
+  .bar .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .ctl { display: flex; height: 100%; }
+  .bar .ctl span { width: 46px; display: grid; place-items: center; font-size: 13px; color: #333; }
+  .bar .ctl span:last-child:hover { background: #c42b1c; color: #fff; }
+  #out {
+    flex: 1; padding: 6px 10px 24px; overflow-y: auto; font-size: 15px; line-height: 1.35;
+    font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+    color: #eeedf0; white-space: pre-wrap; word-break: break-word; cursor: text;
+    scrollbar-width: thin; scrollbar-color: #4a5d80 transparent;
+  }
+  .line { min-height: 1.35em; }
+  .dim { color: #9aa7bd; }
+  .err { color: #ff6b6b; background: #000; }
+  .warn { color: #ffff55; }
+  .pink { color: #ff9ccf; }
+  .ok { color: #7dff8a; }
+  .cmd { color: #ffff55; }
+  .str { color: #5ff3ff; }
+  .prog { background: #007a7a; color: #ffff55; }
+  .cursor {
+    display: inline-block; width: .6em; height: .18em; vertical-align: -0.12em; margin-left: 1px;
+    background: #eeedf0; animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  #code {
+    position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0;
+    border: 0; padding: 0; font-size: 16px; /* no zoom on iOS */
+  }
+
+  /* ---------- flower scene ---------- */
+  #scene { position: fixed; inset: 0; opacity: 0; transition: opacity 1.6s ease; pointer-events: none; z-index: 1; }
+  #scene.on { opacity: 1; pointer-events: auto; cursor: pointer; }
+  #scene canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #glow { filter: blur(14px) saturate(1.5); opacity: .8; }
+  #msg {
+    position: absolute; left: 0; right: 0; bottom: max(4vh, 18px); padding: 0 16px;
+    text-align: center; pointer-events: none;
+  }
+  #msg .text {
+    font-size: clamp(17px, 2.6vw, 28px); color: #ffe3ef; letter-spacing: .02em;
+    text-shadow: 0 0 10px rgba(255,105,180,.85), 0 0 26px rgba(255,105,180,.45);
+    min-height: 1.4em;
+  }
+  #msg .hint {
+    margin-top: 8px; font-size: clamp(11px, 1.3vw, 13px); color: var(--dim);
+    opacity: 0; transition: opacity 1.2s ease;
+  }
+  #msg .hint.on { opacity: .85; }
+
+  @media (max-width: 560px) {
+    #out { font-size: 13px; padding: 12px 12px 20px; }
+    .bar .title { margin-right: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div id="term">
+  <div class="window" id="win">
+    <div class="bar">
+      <span class="ico">&gt;_</span>
+      <span class="title">Windows PowerShell</span>
+      <span class="ctl"><span>&#x2014;</span><span>&#x2610;</span><span>&#x2715;</span></span>
+    </div>
+    <div id="out"></div>
+    <input id="code" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Команда">
+  </div>
+</div>
+
+<div id="scene">
+  <canvas id="glow"></canvas>
+  <canvas id="cv"></canvas>
+  <div id="msg"><div class="text"></div><div class="hint"></div></div>
+</div>
+
+<script>
+/* ================== НАСТРОЙКИ ================== */
+const CONFIG = {
+  command: "I love you",                        // какую команду она должна ввести
+  message: "Это всё для тебя, моя любимая ❤",   // сообщение под букетом
+  user: "love",                                 // имя в строке PS C:\Users\<user>>
+};
+/* =============================================== */
+
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const rand = (a = 1, b) => b === undefined ? Math.random() * a : a + Math.random() * (b - a);
+const pick = a => a[Math.random() * a.length | 0];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const frac = v => v - Math.floor(v);
+const TAU = Math.PI * 2;
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const bin = n => Array.from({ length: n }, () => Math.random() < .5 ? '0' : '1').join('');
+
+/* ================== TERMINAL ================== */
+const out = $('#out'), input = $('#code'), win = $('#win');
+let accepting = false, tries = 0, promptLine = null;
+const PS = `PS C:\\Users\\${CONFIG.user}> `;
+const norm = s => s.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '');
+
+function addLine(cls = '') {
+  const d = document.createElement('div');
+  d.className = 'line ' + cls;
+  out.appendChild(d);
+  out.scrollTop = out.scrollHeight;
+  return d;
+}
+async function typeInto(el, text, speed = 18) {
+  const node = document.createTextNode('');
+  el.appendChild(node);
+  for (const ch of text) {
+    node.data += ch;
+    out.scrollTop = out.scrollHeight;
+    if (speed) await sleep(speed + Math.random() * speed);
+  }
+}
+async function type(text, cls = '', speed = 18) {
+  const d = addLine(cls);
+  await typeInto(d, text, speed);
+  return d;
+}
+function addHTML(html, cls = '') { const d = addLine(cls); d.innerHTML = html; return d; }
+
+async function boot() {
+  addLine().textContent = 'Windows PowerShell';
+  addLine().textContent = '(C) Корпорация Майкрософт (Microsoft Corporation). Все права защищены.';
+  addLine();
+  await sleep(700);
+  // "user" runs the gift script
+  const d = addLine();
+  d.textContent = PS;
+  const c = document.createElement('span'); c.className = 'cursor'; d.appendChild(c);
+  await sleep(900);
+  c.remove();
+  const s = document.createElement('span'); s.className = 'cmd'; d.appendChild(s);
+  await typeInto(s, '.\\gift.ps1', 70);
+  await sleep(500);
+  addLine();
+  await type('Найдена зашифрованная посылка для тебя 🎁', 'pink', 16);
+  await sleep(150);
+  await type('Содержимое: 01100110 01101100 01101111 01110111 01100101 01110010 01110011', 'dim', 4);
+  await sleep(300);
+  addLine();
+  const ask = addLine('warn');
+  await typeInto(ask, 'Чтобы открыть её, введи команду:  ', 16);
+  const cmd = document.createElement('span'); cmd.className = 'str'; ask.appendChild(cmd);
+  await typeInto(cmd, CONFIG.command, 40);
+  addLine();
+  showPrompt();
+}
+
+function showPrompt() {
+  promptLine = addLine();
+  promptLine.innerHTML = `<span class="ps"></span><span class="typed cmd"></span><span class="cursor"></span>`;
+  promptLine.querySelector('.ps').textContent = PS;
+  input.value = '';
+  accepting = true;
+  focusInput();
+}
+function focusInput() { if (accepting) input.focus({ preventScroll: true }); }
+
+input.addEventListener('input', () => {
+  input.value = input.value.slice(0, 60);
+  if (promptLine) promptLine.querySelector('.typed').textContent = input.value;
+});
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); submit(); }
+});
+$('#term').addEventListener('click', focusInput);
+document.addEventListener('keydown', e => { if (accepting && document.activeElement !== input && e.key.length === 1) focusInput(); });
+
+async function submit() {
+  if (!accepting) return;
+  accepting = false;
+  const v = input.value.trim();
+  input.blur();
+  promptLine.querySelector('.cursor')?.remove();
+
+  if (!v) { showPrompt(); return; }
+
+  if (norm(v) === norm(CONFIG.command)) {
+    await granted();
+  } else {
+    tries++;
+    win.classList.remove('shake'); void win.offsetWidth; win.classList.add('shake');
+    await type(`${v} : Имя "${v}" не распознано как имя командлета, функции или программы.`, 'err', 3);
+    await type(`Правильная команда:  ${CONFIG.command}`, 'err', 3);
+    if (tries >= 2) await type('    (ну давай, ты же знаешь эти слова 🙂)', 'dim', 12);
+    addLine();
+    showPrompt();
+  }
+}
+
+async function granted() {
+  addLine();
+  await type('Команда принята ❤', 'pink', 30);
+  await sleep(300);
+  addLine('dim').textContent = 'Распаковка посылки';
+  const bar = addLine('prog');
+  const N = innerWidth < 560 ? 18 : 40;
+  bar.style.display = 'inline-block';
+  for (let i = 0; i <= N; i++) {
+    bar.textContent = ` [${'o'.repeat(i)}${' '.repeat(N - i)}] ${Math.round(i / N * 100)}% `;
+    await sleep(30 + Math.random() * 45);
+  }
+  await type('Сборка букета из бинарного кода...', 'ok', 12);
+  const w = innerWidth < 560 ? 32 : 56;
+  for (let i = 0; i < 7; i++) {
+    const d = addLine('dim');
+    d.textContent = bin(w).replace(/(.{8})/g, '$1 ').trim();
+    out.scrollTop = out.scrollHeight;
+    await sleep(70);
+  }
+  await type('Готово ✿', 'pink', 20);
+  await sleep(600);
+  $('#term').classList.add('gone');
+  startScene();
+}
+
+/* ================== FLOWER SCENE ================== */
+const scene = $('#scene'), cv = $('#cv'), gl = $('#glow');
+const ctx = cv.getContext('2d'), gctx = gl.getContext('2d');
+const msgText = $('#msg .text'), msgHint = $('#msg .hint');
+let W, H, DPR, CELL, COLS, ROWS, grid, flash, chars, elements = [], palette, palIdx;
+let t0 = 0, endT = 0, drops = [], frameNo = 0, lastNow = 0, msgStarted = false, running = false;
+
+function colr(h, s, l) {
+  const k = `hsl(${Math.round(h)},${Math.round(s)}%,${Math.round(clamp(l, 4, 98))}%)`;
+  let i = palIdx.get(k);
+  if (i === undefined) { i = palette.length; palette.push(k); palIdx.set(k, i); }
+  return i;
+}
+
+function setup() {
+  DPR = Math.min(2, devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  gl.width = Math.max(1, W >> 1); gl.height = Math.max(1, H >> 1);
+  CELL = Math.round(clamp(Math.min(W, H) / 80, 7, 13));
+  COLS = Math.ceil(W / CELL); ROWS = Math.ceil(H / CELL);
+  grid = new Int16Array(COLS * ROWS);
+  flash = new Uint8Array(COLS * ROWS);
+  chars = new Array(COLS * ROWS);
+  for (let i = 0; i < chars.length; i++) chars[i] = Math.random() < .5 ? '0' : '1';
+  drops = [];
+  for (let c = 0; c < COLS; c++) drops.push({ y: rand(-ROWS, ROWS), v: rand(3, 11) });
+}
+
+/* a drawable layer of cells: [cellIndex, colorIndex, revealTime] */
+class Layer {
+  constructor() { this.cells = []; this.map = new Map(); }
+  add(c, r, color, t) {
+    if (c < 0 || r < 0 || c >= COLS || r >= ROWS) return;
+    const k = r * COLS + c;
+    const at = this.map.get(k);
+    if (at !== undefined) { this.cells[at + 1] = color; this.cells[at + 2] = t; return; }
+    this.map.set(k, this.cells.length);
+    this.cells.push(k, color, t);
+    if (t > endT) endT = t;
+  }
+}
+
+function paintShape(layer, cx, cy, R, ext, fn, tStart, dur) {
+  const c0 = Math.floor((cx + ext[0] * R) / CELL), c1 = Math.ceil((cx + ext[1] * R) / CELL);
+  const r0 = Math.floor((cy + ext[2] * R) / CELL), r1 = Math.ceil((cy + ext[3] * R) / CELL);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const x = ((c + .5) * CELL - cx) / R, y = ((r + .5) * CELL - cy) / R;
+    const color = fn(x, y);
+    if (color == null) continue;
+    layer.add(c, r, color, tStart + Math.min(1, Math.hypot(x, y)) * dur + rand(.12));
+  }
+}
+
+/* ---- flower shapes: (x,y) in head-radius units -> color index | null ---- */
+function roseFn() {
+  const p = pick([[350, 88, 46], [340, 82, 56], [356, 92, 38], [330, 78, 68], [12, 88, 60], [45, 90, 72], [0, 0, 90]]);
+  const rot = rand(TAU), sp = rand(3.2, 4.3);
+  return (x, y) => {
+    const d = Math.hypot(x, y), a = Math.atan2(y, x) + rot;
+    const rim = .8 + .2 * Math.pow(Math.abs(Math.cos(2.5 * a)), .6);
+    if (d > rim) return null;
+    let l = p[2] - 9 + 18 * (d / rim);
+    if (frac(d * sp - a / TAU) < .2 && d > .08) l -= p[1] ? 20 : 14;
+    if (d < .1) l = p[2] - 24;
+    return colr(p[0] + rand(-4, 4), p[1], l);
+  };
+}
+function daisyFn(Rc) {
+  const p = pick([[0, 0, 94], [270, 72, 74], [205, 88, 70], [50, 96, 60], [330, 88, 67], [22, 96, 58], [0, 86, 56]]);
+  const cc = p[0] === 50 ? [25, 70, 26] : pick([[48, 96, 55], [38, 96, 50]]);
+  const k = Math.round(clamp(Rc * 1.1, 7, 13)), off = rand(1);
+  return (x, y) => {
+    const d = Math.hypot(x, y);
+    if (d > 1) return null;
+    if (d < .24) return colr(cc[0] + rand(-5, 5), cc[1], cc[2] + rand(-10, 10));
+    const u = frac(Math.atan2(y, x) / TAU * k + off) - .5;
+    const hw = .46 * Math.pow(Math.sin(Math.PI * clamp((d - .12) / .88, 0, 1)), .6);
+    if (Math.abs(u) > hw) return null;
+    return colr(p[0], p[1], p[2] - 14 * Math.abs(u) / hw - 6 * d);
+  };
+}
+function bloomFn() {
+  const p = pick([[300, 82, 60], [280, 72, 64], [6, 88, 62], [222, 88, 66], [188, 82, 55], [330, 92, 70], [40, 96, 58]]);
+  const rot = rand(TAU), n = pick([5, 5, 6]);
+  return (x, y) => {
+    const d = Math.hypot(x, y), a = Math.atan2(y, x) + rot;
+    const r = .3 + .7 * Math.pow(Math.abs(Math.cos(n / 2 * a)), .45);
+    if (d > r) return null;
+    if (d < .12) return colr(52, 100, 72);
+    if (d < .22) return colr(p[0], p[1], p[2] - 26);
+    return colr(p[0] + 18 * (d - .5), p[1], p[2] - 6 + 15 * (d / r));
+  };
+}
+function tulipFn() {
+  const p = pick([[355, 86, 50], [48, 96, 58], [335, 82, 62], [22, 96, 55], [285, 62, 56], [0, 0, 92], [315, 80, 45]]);
+  return (x, y) => {
+    const uu = x / .62;
+    if (Math.abs(uu) > 1) return null;
+    if (y >= -.1) { if (uu * uu + ((y + .1) / .7) ** 2 > 1) return null; }
+    else if (y < -.1 - .8 * Math.abs(Math.cos(uu * 1.5 * Math.PI))) return null;
+    let l = p[2] + 12 * (-y) * .5 + 6 * (1 - Math.abs(uu));
+    if (Math.abs(Math.sin(uu * 1.5 * Math.PI)) > .9 && Math.abs(uu) < .6 && y > -.55) l -= 16;
+    return colr(p[0] + rand(-3, 3), p[1], l);
+  };
+}
+const SHAPES = {
+  rose:  { fn: () => roseFn(),  ext: [-1, 1, -1, 1] },
+  daisy: { fn: Rc => daisyFn(Rc), ext: [-1, 1, -1, 1] },
+  bloom: { fn: () => bloomFn(), ext: [-1, 1, -1, 1] },
+  tulip: { fn: () => tulipFn(), ext: [-.65, .65, -.95, .62] },
+};
+
+/* ---- stems ---- */
+function stemPath(B, Tp, Hd) {
+  const pts = [];
+  for (let i = 0; i <= 12; i++) { const s = i / 12; pts.push([B.x + (Tp.x - B.x) * s, B.y + (Tp.y - B.y) * s]); }
+  const Q = { x: Tp.x + (Hd.x - Tp.x) * .15, y: Tp.y - (Tp.y - Hd.y) * .6 };
+  for (let i = 1; i <= 48; i++) {
+    const s = i / 48, a = (1 - s) * (1 - s), b = 2 * s * (1 - s), c = s * s;
+    pts.push([a * Tp.x + b * Q.x + c * Hd.x, a * Tp.y + b * Q.y + c * Hd.y]);
+  }
+  const L = [0];
+  for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return { pts, L, total: L[L.length - 1] };
+}
+function drawStem(layer, path, colors, tStart, dur, w) {
+  const { pts, L, total } = path;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    const len = Math.hypot(x1 - x0, y1 - y0), steps = Math.max(1, Math.ceil(len / (CELL * .4)));
+    for (let k = 0; k <= steps; k++) {
+      const s = k / steps, x = x0 + (x1 - x0) * s, y = y0 + (y1 - y0) * s;
+      const t = tStart + (L[i - 1] + len * s) / total * dur;
+      const c = Math.floor(x / CELL), r = Math.floor(y / CELL), color = pick(colors);
+      layer.add(c, r, color, t);
+      if (w > 1) layer.add(c + 1, r, color, t);
+    }
+  }
+}
+function pointAt(path, f) {
+  const target = path.total * f;
+  let i = 1;
+  while (i < path.L.length - 1 && path.L[i] < target) i++;
+  const [x0, y0] = path.pts[i - 1], [x1, y1] = path.pts[i];
+  const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+  return { x: x1, y: y1, tx: (x1 - x0) / len, ty: (y1 - y0) / len };
+}
+function addLeaf(layer, base, angle, Ln, Wd, tStart) {
+  const dx = Math.cos(angle), dy = Math.sin(angle), hue = rand(105, 145), L0 = rand(30, 42);
+  const ext = Ln + Wd;
+  const c0 = Math.floor((base.x - ext) / CELL), c1 = Math.ceil((base.x + ext) / CELL);
+  const r0 = Math.floor((base.y - ext) / CELL), r1 = Math.ceil((base.y + ext) / CELL);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const vx = (c + .5) * CELL - base.x, vy = (r + .5) * CELL - base.y;
+    const along = vx * dx + vy * dy, across = -vx * dy + vy * dx;
+    if (along < 0 || along > Ln) continue;
+    if (Math.abs(across) > Wd * Math.pow(Math.sin(Math.PI * along / Ln), .8)) continue;
+    const vein = Math.abs(across) < CELL * .5;
+    layer.add(c, r, colr(hue, 60, vein ? L0 - 10 : L0 + 8 * (along / Ln)), tStart + along / Ln * .5 + rand(.08));
+  }
+}
+
+/* ---- bow ---- */
+function addRibbon(layer, T, u, t) {
+  const p = pick([[345, 88, 56], [0, 86, 50], [330, 82, 66], [45, 92, 56], [275, 62, 62], [200, 80, 60]]);
+  const bw = .05 * u, bh = Math.max(CELL * 1.2, .02 * u);
+  // band around stems
+  for (let r = Math.floor((T.y - bh) / CELL); r <= Math.ceil((T.y + bh) / CELL); r++)
+    for (let c = Math.floor((T.x - bw) / CELL); c <= Math.ceil((T.x + bw) / CELL); c++)
+      layer.add(c, r, colr(p[0], p[1], p[2] - 10), t + rand(.15));
+  // loops
+  for (const side of [-1, 1]) {
+    const C = { x: T.x + side * .062 * u, y: T.y - .014 * u };
+    const rx = .055 * u, ry = .03 * u, tilt = side * -.35;
+    const th = clamp(1.4 * CELL / ry, .25, .8);
+    const ex = rx + CELL;
+    for (let r = Math.floor((C.y - ex) / CELL); r <= Math.ceil((C.y + ex) / CELL); r++)
+      for (let c = Math.floor((C.x - ex) / CELL); c <= Math.ceil((C.x + ex) / CELL); c++) {
+        const vx = (c + .5) * CELL - C.x, vy = (r + .5) * CELL - C.y;
+        const lx = vx * Math.cos(tilt) + vy * Math.sin(tilt), ly = -vx * Math.sin(tilt) + vy * Math.cos(tilt);
+        const e = Math.sqrt((lx / rx) ** 2 + (ly / ry) ** 2);
+        if (e > 1 || e < 1 - th) continue;
+        layer.add(c, r, colr(p[0], p[1], p[2] + 6 * (1 - e)), t + .15 + Math.abs(vx) / rx * .35);
+      }
+    // tails
+    const end = { x: T.x + side * .045 * u, y: T.y + .1 * u };
+    const steps = Math.ceil(.11 * u / (CELL * .4));
+    for (let k = 0; k <= steps; k++) {
+      const s = k / steps, x = T.x + (end.x - T.x) * s + Math.sin(s * 6) * CELL * .8 * side, y = T.y + (end.y - T.y) * s;
+      layer.add(Math.floor(x / CELL), Math.floor(y / CELL), colr(p[0], p[1], p[2] - 4), t + .3 + s * .4);
+    }
+  }
+  // knot
+  const kr = Math.max(CELL * 1.1, .016 * u);
+  paintShape(layer, T.x, T.y, kr, [-1, 1, -1, 1], (x, y) => Math.hypot(x, y) <= 1 ? colr(p[0], p[1], p[2] + 10) : null, t + .1, .1);
+}
+
+/* ---- the bouquet ---- */
+function build() {
+  palette = []; palIdx = new Map(); elements = []; endT = 0;
+  const T = { x: W / 2, y: H * .72 };
+  const Hb = T.y - H * .04;
+  const u = Math.min(Hb / .92, W / 1.72);
+  const uy = Math.min(Hb / .92, u * 2.2);
+  const rs = Math.min(1.3, uy / u);
+
+  const main = [
+    [0, -.72, 1.05], [-.30, -.63, 1], [.30, -.63, 1], [-.55, -.42, .9],
+    [.55, -.42, .9], [-.16, -.40, .95], [.17, -.38, .95], [0, -.20, .8],
+  ];
+  const types = ['rose', ...shuffle(['rose', 'rose', 'tulip', 'tulip', 'daisy', 'daisy', 'bloom', 'bloom']).slice(0, 7)];
+  const fillers = [[-.46, -.80], [.46, -.80], [-.74, -.22], [.74, -.22]];
+
+  const stems = new Layer(), leaves = new Layer(), small = new Layer();
+  const heads = [];
+  const greens = [colr(128, 62, 34), colr(138, 58, 40), colr(118, 55, 30)];
+
+  main.forEach(([hx, hy, size], i) => {
+    const Hd = { x: T.x + (hx + rand(-.03, .03)) * u, y: T.y + (hy + rand(-.03, .03)) * uy };
+    const B = { x: T.x - hx * .12 * u + rand(-.02, .02) * u, y: T.y + (.11 + rand(.04)) * u };
+    const Tp = { x: T.x + hx * .03 * u, y: T.y };
+    const path = stemPath(B, Tp, Hd);
+    const tS = .2 + i * .09, dur = 1.7;
+    drawStem(stems, path, greens, tS, dur, CELL < 10 ? 1 : 2);
+    // leaves
+    const nLeaves = pick([0, 1, 1, 2]);
+    for (let k = 0; k < nLeaves; k++) {
+      const f = rand(.4, .7), pt = pointAt(path, f);
+      const side = (k % 2 ? -1 : 1) * (hx >= 0 ? 1 : -1);
+      const ang = Math.atan2(pt.ty, pt.tx) + side * rand(.6, 1);
+      addLeaf(leaves, pt, ang, .11 * u * rs, .032 * u * rs, tS + f * dur + .1);
+    }
+    const type = types[i];
+    const R = .15 * u * rs * size * rand(.92, 1.08);
+    heads.push({ type, Hd, R, t: tS + dur - .1 });
+  });
+
+  fillers.forEach(([hx, hy], i) => {
+    const Hd = { x: T.x + hx * u, y: T.y + hy * uy };
+    const B = { x: T.x - hx * .1 * u, y: T.y + (.1 + rand(.04)) * u };
+    const path = stemPath(B, { x: T.x + hx * .03 * u, y: T.y }, Hd);
+    const tS = .5 + i * .1, dur = 1.6;
+    drawStem(stems, path, [colr(125, 45, 36)], tS, dur, 1);
+    const p = pick([[0, 0, 96], [270, 62, 82], [52, 96, 64], [330, 72, 82], [195, 70, 78]]);
+    const rr = .075 * u * rs, dotR = Math.max(CELL * 1.05, .016 * u * rs);
+    for (let k = 0; k < 8; k++) {
+      const a = rand(TAU), dd = rand(rr);
+      const x = Hd.x + Math.cos(a) * dd, y = Hd.y + Math.sin(a) * dd * .8;
+      paintShape(small, x, y, dotR, [-1, 1, -1, 1],
+        (px, py) => Math.hypot(px, py) <= 1 ? colr(p[0], p[1], p[2] - 6 * Math.hypot(px, py)) : null,
+        tS + dur + k * .06, .1);
+    }
+  });
+
+  elements.push(stems, leaves, small);
+
+  heads.sort((a, b) => a.Hd.y - b.Hd.y); // top = back, bottom = front
+  for (const h of heads) {
+    const L = new Layer(), sh = SHAPES[h.type];
+    paintShape(L, h.Hd.x, h.Hd.y, h.R, sh.ext, sh.fn(h.R / CELL), h.t, 1.3);
+    elements.push(L);
+  }
+
+  const bow = new Layer();
+  addRibbon(bow, T, u, 1.0);
+  elements.push(bow);
+}
+
+function frame(now) {
+  if (!running) return;
+  const t = (now - t0) / 1000, dt = Math.min(.05, (now - lastNow) / 1000 || 0);
+  lastNow = now;
+
+  grid.fill(-1);
+  for (const L of elements) {
+    const a = L.cells;
+    for (let i = 0; i < a.length; i += 3) {
+      const tr = a[i + 2];
+      if (tr <= t) { grid[a[i]] = a[i + 1]; flash[a[i]] = t - tr < .12 ? 1 : 0; }
+    }
+  }
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#030604';
+  ctx.fillRect(0, 0, W, H);
+  ctx.font = `bold ${Math.round(CELL * 1.12)}px Consolas, "Cascadia Mono", "Courier New", monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const half = CELL / 2;
+
+  // background binary rain (only in empty cells)
+  for (const d of drops) { d.y += d.v * dt; if (d.y > ROWS + 12) { d.y = rand(-25, -2); d.v = rand(3, 11); } }
+  for (let j = 0; j < 9; j++) {
+    ctx.fillStyle = `rgba(57,255,136,${(.15 * (1 - j / 9)).toFixed(3)})`;
+    for (let c = 0; c < COLS; c++) {
+      const r = Math.floor(drops[c].y) - j;
+      if (r < 0 || r >= ROWS) continue;
+      const k = r * COLS + c;
+      if (grid[k] >= 0) continue;
+      ctx.fillText(chars[k], c * CELL + half, r * CELL + half);
+    }
+  }
+
+  // flowers
+  let last = '';
+  for (let r = 0, k = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++, k++) {
+      const g = grid[k];
+      if (g < 0) continue;
+      const style = flash[k] ? '#f2fff7' : palette[g];
+      if (style !== last) { ctx.fillStyle = style; last = style; }
+      ctx.fillText(chars[k], c * CELL + half, r * CELL + half);
+    }
+  }
+
+  // flicker bits
+  const flips = (chars.length * .012) | 0;
+  for (let i = 0; i < flips; i++) { const k = Math.random() * chars.length | 0; chars[k] = chars[k] === '0' ? '1' : '0'; }
+
+  if ((frameNo++ & 1) === 0) {
+    gctx.clearRect(0, 0, gl.width, gl.height);
+    gctx.drawImage(cv, 0, 0, gl.width, gl.height);
+  }
+
+  if (!msgStarted && t > endT + .3) { msgStarted = true; revealMessage(CONFIG.message); }
+  requestAnimationFrame(frame);
+}
+
+async function revealMessage(text) {
+  const ch = [...text];
+  for (let i = 0; i <= ch.length; i++) {
+    for (let rep = 0; rep < 2; rep++) {
+      msgText.textContent = ch.slice(0, i).join('') + ch.slice(i).map(c => c === ' ' ? ' ' : (Math.random() < .5 ? '0' : '1')).join('');
+      await sleep(38);
+    }
+  }
+  msgText.textContent = text;
+  await sleep(900);
+  msgHint.textContent = 'нажми на экран — соберу новый букет ✿';
+  msgHint.classList.add('on');
+}
+
+function restart(full = true) {
+  setup();
+  build();
+  t0 = performance.now() - (full ? 0 : 60000);
+  lastNow = performance.now();
+}
+
+function startScene() {
+  restart(true);
+  scene.classList.add('on');
+  running = true;
+  requestAnimationFrame(frame);
+}
+
+scene.addEventListener('click', () => { if (running) restart(true); });
+let rz;
+addEventListener('resize', () => {
+  if (!running) return;
+  clearTimeout(rz);
+  rz = setTimeout(() => restart(false), 200);
+});
+
+boot();
+</script>
+</body>
+</html>
